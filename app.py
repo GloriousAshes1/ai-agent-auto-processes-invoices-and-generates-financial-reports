@@ -1,93 +1,69 @@
 import streamlit as st
 from paddleocr import PaddleOCR
-import json
-from PIL import Image
+from pdf2image import convert_from_bytes
 import numpy as np
+import cv2
 import os
+from datetime import datetime
+from io import BytesIO
+from PIL import Image
 
-# Create output directory if it doesn't exist
-if not os.path.exists('output'):
-    os.makedirs('output')
-
-# Initialize PaddleOCR
+# Khởi tạo OCR
 ocr = PaddleOCR(
     use_textline_orientation=True,
     text_detection_model_name='PP-OCRv5_server_det',
     text_recognition_model_name='PP-OCRv5_server_rec',
 )
 
-st.title("Invoice OCR with PaddleOCR")
+st.set_page_config(page_title="Invoice OCR (Image + PDF)", layout="wide")
+st.title("📄 AI Nhận dạng Hóa đơn (Ảnh & PDF) bằng PaddleOCR")
 
-uploaded_file = st.file_uploader("Choose an invoice image...", type=["jpg", "png", "jpeg"])
+uploaded_files = st.file_uploader(
+    "📤 Tải lên nhiều ảnh hoặc PDF hóa đơn",
+    type=["jpg", "jpeg", "png", "pdf"],
+    accept_multiple_files=True
+)
 
-if uploaded_file is not None:
-    # To read file as bytes:
-    bytes_data = uploaded_file.getvalue()
-    
-    # To convert to a PIL Image object
-    image = Image.open(uploaded_file).convert('RGB')
-    
-    # Display the uploaded image
-    st.image(image, caption='Uploaded Invoice', use_container_width=True)
-    
-    # Convert PIL image to numpy array
-    img_array = np.array(image)
+# Bắt đầu OCR khi nhấn nút
+if uploaded_files and st.button("🚀 Bắt đầu OCR"):
+    os.makedirs("./output/raw_results", exist_ok=True)
+    today_str = datetime.now().strftime("%d%m%Y")
+    index = 1
 
-    st.write("Processing invoice...")
+    for file in uploaded_files:
+        filename = file.name
+        ext = filename.lower().split('.')[-1]
 
-    # Run OCR
-    result = ocr.predict(img_array)
+        st.markdown(f"---\n### 📁 File: `{filename}`")
 
-    # Display the raw OCR result for debugging
-    st.write("Raw OCR Result:")
-    st.write(result)
+        # Ảnh đơn
+        if ext in ['jpg', 'jpeg', 'png']:
+            file_bytes = np.asarray(bytearray(file.read()), dtype=np.uint8)
+            img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
 
-    # The result is a list of lists, where each inner list contains the bounding box, the text, and the confidence score.
-    # Let's process this into a more structured format for JSON.
-    
-    if result and result[0] is not None:
-        processed_result = []
-        for i, line in enumerate(result[0]):
-            try:
-                box = line[0]
-                # Add a check to handle cases where recognition might fail
-                if isinstance(line[1], tuple) and len(line[1]) == 2:
-                    text, confidence = line[1]
-                else:
-                    # Handle cases where the result for a box is not as expected
-                    text = "" # Or some placeholder
-                    confidence = 0.0
-                
-                processed_result.append({
-                    "text": text,
-                    "confidence": float(confidence),
-                    "bounding_box": {
-                        "top_left": [int(p) for p in box[0]],
-                        "top_right": [int(p) for p in box[1]],
-                        "bottom_right": [int(p) for p in box[2]],
-                        "bottom_left": [int(p) for p in box[3]],
-                    }
-                })
-            except (ValueError, IndexError) as e:
-                st.error(f"Error processing line {i}: {line}")
-                st.error(f"Error details: {e}")
-                continue
+            result = ocr.predict(img)
+            for res in result:
+                st.code(res.print(), language='text')
+                res.save_to_img(save_path="./output/")
+                json_path = f"./output/raw_results/invoice_{index}_{today_str}.json"
+                res.save_to_json(save_path=json_path)
+                st.success(f"✅ Đã lưu JSON: `{json_path}`")
+                index += 1
 
+        # PDF
+        elif ext == 'pdf':
+            pdf_pages = convert_from_bytes(file.read(), dpi=300)
+            for page_num, page in enumerate(pdf_pages, start=1):
+                img = cv2.cvtColor(np.array(page), cv2.COLOR_RGB2BGR)
+                result = ocr.predict(img)
 
-        # Save the result to a JSON file
-        output_path = os.path.join('output', 'res.json')
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(processed_result, f, ensure_ascii=False, indent=4)
+                st.markdown(f"#### 📄 Trang {page_num} của {filename}")
+                for res in result:
+                    st.code(res.print(), language='text')
+                    res.save_to_img(save_path="./output/")
+                    json_path = f"./output/raw_results/invoice_{index}_{today_str}.json"
+                    res.save_to_json(save_path=json_path)
+                    st.success(f"✅ Đã lưu JSON: `{json_path}`")
+                    index += 1
 
-        st.success(f"OCR result saved to {output_path}")
-
-        # Display the extracted text
-        st.write("Extracted Text:")
-        for item in processed_result:
-            st.write(f"- {item['text']}")
-            
-        # Display the JSON result
-        st.write("JSON Output:")
-        st.json(processed_result)
-    else:
-        st.error("No text detected in the image.")
+    st.success("🎉 Đã xử lý xong tất cả file!")
