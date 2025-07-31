@@ -1,128 +1,113 @@
+"""
+NLP Module để rút trích thông tin từ hóa đơn.
+
+Module này được tối ưu hóa để trích xuất Tên Công ty và Tổng tiền
+từ các file hóa đơn có định dạng tương tự như các file đã cung cấp.
+"""
+
 import re
+import os
+from typing import Dict, Any
+import json
+from utils import get_llm_model
 
+model = get_llm_model()
 
-def preprocess(lines):
-    return [line.strip() for line in lines if line.strip()]
+def extract_invoice_info(text_content: str) -> Dict[str, Any]:
+    """
+    Rút trích Tên Công ty và Tổng tiền từ nội dung văn bản của hóa đơn.
+    Hiện tại chỉ hoạt động với hóa đơn VAT của VinCommerce
+    Args:
+        text_content: Nội dung plaintext của hóa đơn.
 
-
-def parse_price(value: str):
-    try:
-        return float(
-            value.replace(',', '').replace('RM', '').replace('VND', '').replace('T', '').replace('$', '').replace('%',
-                                                                                                                  '').strip())
-    except:
-        return None
-
-
-def is_valid_product_line(line):
-    line_lower = line.lower()
-    # Reject blacklisted keywords
-    if any(k in line_lower for k in
-           ['jalan', 'room', 'location', 'pos', 'cashier', 'no:', 'fax', 'tel', 'sp:', 'mb:', 'gst', 'tax', 'vat',
-            'change', 'rounding', 'total']):
-        return False
-    # Must contain some letters
-    if not any(c.isalpha() for c in line):
-        return False
-    # Must contain a number (price)
-    if not re.search(r"[\d.,]{2,}", line):
-        return False
-    return True
-
-
-def is_numeric_only_line(line):
-    line = line.replace('-', '').replace('%', '')
-    return bool(re.fullmatch(r"[0-9.,]+", line.strip()))
-
-
-def extract_fields(lines: list[str]):
-    result = {
-        "company_name": None,
-        "invoice_date": None,
-        "total_amount": None,
-        "vat_amount": None,
-        "payment_method": None,
-        "products": []
+    Returns:
+        Một dictionary chứa Tên Công ty và Tổng tiền.
+    """
+    info = {
+        "company": None,
+        "total_amount": None
     }
 
-    # 1. Company Name
-    for i in range(5):
-        line = lines[i]
-        if line.upper() not in ["RECEIPT", "INVOICE"] and any(c.isalpha() for c in line):
-            result["company_name"] = line.strip().lower()
-            break
+    # 1. Pattern cho Tên Công ty (hỗ trợ các biến thể OCR)
+    company_pattern = r"(Vin|Vn|Mn)Commerce"
+    company_match = re.search(company_pattern, text_content, re.IGNORECASE)
 
-    # 2. Invoice Date
-    for line in lines:
-        match = re.search(r"(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})", line)
-        if match:
-            result["invoice_date"] = match.group(1)
-            break
+    # Gán giá trị chuẩn hóa nếu tìm thấy
+    if company_match:
+        info["company"] = "VinCommerce"
 
-    # 3. VAT Amount
-    for line in lines:
-        if any(k in line.lower() for k in ['vat', 'tax', 'gst']):
-            prices = re.findall(r"[-]?\d[\d.,]*", line)
-            if prices:
-                vat = parse_price(prices[-1])
-                if vat is not None and vat >= 0:
-                    result["vat_amount"] = vat
-                    break
+    # 2. Pattern cho Tổng tiền thanh toán
+    # Dựa trên cấu trúc nhất quán: TONG TIEN PHAI T.TOAN
+    total_pattern = r"TONG TIEN PHAI T\.TOAN\s*(-?[\d.,]+)"
+    total_match = re.search(total_pattern, text_content)
 
-    # 4. Total Amount – dòng gần cuối, ưu tiên có chữ "total"
-    for line in reversed(lines[-10:]):
-        if any(k in line.lower() for k in ["total", "amount due", "grand total", "tổng cộng"]):
-            prices = re.findall(r"[\d.,]+", line)
-            for p in reversed(prices):
-                amt = parse_price(p)
-                if amt and amt > 0:
-                    result["total_amount"] = amt
-                    break
-        if result["total_amount"]:
-            break
+    if total_match:
+        # Lấy chuỗi số, loại bỏ dấu chấm và chuẩn hóa thành số thực
+        amount_str = total_match.group(1).replace('.', '').replace(',', '.')
+        try:
+            info["total_amount"] = float(amount_str)
+        except ValueError:
+            info["total_amount"] = "value_error"
 
-    # 5. Payment method
-    for line in lines:
-        if "visa" in line.lower():
-            result["payment_method"] = "VISA"
-            break
-        elif "cash" in line.lower():
-            result["payment_method"] = "CASH"
-            break
-        elif "master" in line.lower():
-            result["payment_method"] = "MASTERCARD"
-            break
-    if not result["payment_method"]:
-        result["payment_method"] = "UNKNOWN"
+    # Nếu không tìm thấy công ty, gán giá trị mặc định
+    if not info["company"]:
+        info["company"] = "not_found"
 
-    # 6. Product lines
-    for line in lines:
-        if is_numeric_only_line(line):
-            continue  # bỏ dòng chỉ có số
+    return info
 
-        if not is_valid_product_line(line):
-            continue
+def prompt_for_LLM(text):
+    prompt = f"""
+      Bạn là một trợ lý kế toán AI chuyên nghiệp.
+      Nhiệm vụ của bạn là trích xuất chính xác các thông tin sau từ văn bản hóa đơn đã được OCR.
 
-        prices = re.findall(r"[\d.,]+", line)
-        if prices:
-            price = parse_price(prices[-1])
-            if price and price < 1_000_000:
-                result["products"].append({
-                    "name": line.strip(),
-                    "qty": 1,
-                    "price": price
-                })
+      Hãy trích xuất các trường thông tin sau và trả về kết quả dưới định dạng JSON:
+      - company: Tên của cửa hàng hoặc công ty phát hành hóa đơn.
+      - total_amount: Tổng số tiền cuối cùng khách hàng phải trả.
 
-    return result
+      Nếu không tìm thấy thông tin nào, hãy để giá trị là null.
+      Chỉ trả về duy nhất đối tượng JSON, không thêm bất kỳ lời giải thích nào.
 
+      Dưới đây là văn bản hóa đơn:
+      ---
+      {text}
+      ---
+      """
+    return prompt
 
-def nlp_module(ocr_text: str) -> dict:
-    lines = preprocess(ocr_text.split("\n"))
-    fields = extract_fields(lines)
+def extract_with_llm(ocr_text):
+    try:
+        prompt = prompt_for_LLM(ocr_text)
 
-    # Check required fields
-    # required_fields = ['company_name', 'invoice_date', 'total_amount', 'vat_amount', 'payment_method']
-    # missing = [k for k in required_fields if not fields.get(k)]
-    # if missing:
-    #     raise ValueError(f"❌ Missing required fields: {missing}")
-    return fields
+        # Gửi prompt đến API của Google
+        response = model.generate_content(prompt)
+
+        # Lấy phần text chứa JSON từ response
+        # Cần xử lý để loại bỏ các ký tự ```json và ``` ở đầu và cuối nếu có
+        json_text = response.text.strip().replace('```json', '').replace('```', '')
+
+        # Chuyển chuỗi JSON thành dictionary
+        extracted_data = json.loads(json_text)
+
+        return extracted_data
+    except Exception as e:
+        print(f"❌ Error: {e}")
+
+def process_invoice_text(text_content: str) -> Dict[str, Any]:
+    """Thử trích xuất bằng regex trước, nếu thất bại thì dùng LLM."""
+    print("INFO: Đang thử trích xuất bằng Regex...")
+    regex_result = extract_invoice_info(text_content)
+
+    # Kiểm tra xem regex có thành công không (ví dụ: tìm thấy công ty)
+    if regex_result.get("company") != "not_found":
+        print("✅ SUCCESS: Regex đã trích xuất thành công.")
+        return regex_result
+
+    print("WARNING: Regex thất bại. Chuyển sang dùng LLM...")
+    llm_result = extract_with_llm(text_content)
+
+    if llm_result:
+        print("✅ SUCCESS: LLM đã trích xuất thành công.")
+        return llm_result
+    else:
+        print("❌ ERROR: Cả Regex và LLM đều thất bại.")
+        return {"company": "error", "total_amount": 0.0}

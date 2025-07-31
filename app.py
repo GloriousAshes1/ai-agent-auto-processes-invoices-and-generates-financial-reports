@@ -1,69 +1,71 @@
 import streamlit as st
-from paddleocr import PaddleOCR
-from pdf2image import convert_from_bytes
-import numpy as np
-import cv2
+from invoice_processor_agent import InvoiceProcessorAgent
 import os
-from datetime import datetime
-from io import BytesIO
+import pandas as pd
 from PIL import Image
 
-# Khởi tạo OCR
-ocr = PaddleOCR(
-    use_textline_orientation=True,
-    text_detection_model_name='PP-OCRv5_server_det',
-    text_recognition_model_name='PP-OCRv5_server_rec',
-)
+# --- Cấu hình trang ---
+st.set_page_config(page_title="Trợ lý Kế toán AI", layout="wide")
 
-st.set_page_config(page_title="Invoice OCR (Image + PDF)", layout="wide")
-st.title("📄 AI Nhận dạng Hóa đơn (Ảnh & PDF) bằng PaddleOCR")
+# --- Khởi tạo Agent (chỉ một lần) ---
+# Sử dụng cache của Streamlit để không phải load lại model mỗi lần tương tác
+@st.cache_resource
+def load_agent():
+    return InvoiceProcessorAgent()
 
-uploaded_files = st.file_uploader(
-    "📤 Tải lên nhiều ảnh hoặc PDF hóa đơn",
-    type=["jpg", "jpeg", "png", "pdf"],
-    accept_multiple_files=True
-)
+agent = load_agent()
+EXCEL_FILE = "NhatKyKeToan.xlsx"
 
-# Bắt đầu OCR khi nhấn nút
-if uploaded_files and st.button("🚀 Bắt đầu OCR"):
-    os.makedirs("./output/raw_results", exist_ok=True)
-    today_str = datetime.now().strftime("%d%m%Y")
-    index = 1
+# --- Giao diện ---
+st.title("🤖 Trợ lý Kế toán AI: Xử lý Hóa đơn")
+st.write("Tải lên ảnh hóa đơn của bạn, AI sẽ tự động trích xuất thông tin, phân loại và lưu vào file Excel.")
 
-    for file in uploaded_files:
-        filename = file.name
-        ext = filename.lower().split('.')[-1]
+# Tạo 2 cột để bố cục đẹp hơn
+col1, col2 = st.columns(2)
 
-        st.markdown(f"---\n### 📁 File: `{filename}`")
+with col1:
+    st.header("1. Tải lên hóa đơn")
+    uploaded_file = st.file_uploader(
+        "Chọn một file ảnh hóa đơn",
+        type=["png", "jpg", "jpeg"]
+    )
 
-        # Ảnh đơn
-        if ext in ['jpg', 'jpeg', 'png']:
-            file_bytes = np.asarray(bytearray(file.read()), dtype=np.uint8)
-            img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+    if uploaded_file is not None:
+        # Hiển thị ảnh đã tải lên
+        image = Image.open(uploaded_file)
+        st.image(image, caption="Hóa đơn đã tải lên", use_container_width=True)
 
-            result = ocr.predict(img)
-            for res in result:
-                st.code(res.print(), language='text')
-                res.save_to_img(save_path="./output/")
-                json_path = f"./output/raw_results/invoice_{index}_{today_str}.json"
-                res.save_to_json(save_path=json_path)
-                st.success(f"✅ Đã lưu JSON: `{json_path}`")
-                index += 1
+        # Nút để bắt đầu xử lý
+        if st.button("Xử lý Hóa đơn", type="primary"):
+            # Lưu tạm file ảnh để agent có thể đọc
+            temp_dir = "temp_uploads"
+            if not os.path.exists(temp_dir):
+                os.makedirs(temp_dir)
 
-        # PDF
-        elif ext == 'pdf':
-            pdf_pages = convert_from_bytes(file.read(), dpi=300)
-            for page_num, page in enumerate(pdf_pages, start=1):
-                img = cv2.cvtColor(np.array(page), cv2.COLOR_RGB2BGR)
-                result = ocr.predict(img)
+            file_path = os.path.join(temp_dir, uploaded_file.name)
+            with open(file_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
 
-                st.markdown(f"#### 📄 Trang {page_num} của {filename}")
-                for res in result:
-                    st.code(res.print(), language='text')
-                    res.save_to_img(save_path="./output/")
-                    json_path = f"./output/raw_results/invoice_{index}_{today_str}.json"
-                    res.save_to_json(save_path=json_path)
-                    st.success(f"✅ Đã lưu JSON: `{json_path}`")
-                    index += 1
+            # Chạy agent và hiển thị kết quả
+            with st.spinner('AI đang phân tích hóa đơn... Vui lòng chờ trong giây lát...'):
+                result = agent.run(file_path)
 
-    st.success("🎉 Đã xử lý xong tất cả file!")
+            st.header("2. Kết quả trích xuất")
+            if result:
+                st.success("Xử lý thành công!")
+                st.json(result)
+            else:
+                st.error("Xử lý thất bại. Vui lòng kiểm tra lại ảnh hoặc hóa đơn.")
+
+            # Xóa file tạm
+            os.remove(file_path)
+
+with col2:
+    st.header("3. Sổ Nhật ký Kế toán (Excel)")
+    st.write("Dữ liệu sẽ được tự động cập nhật vào file này sau mỗi lần xử lý.")
+
+    if os.path.exists(EXCEL_FILE):
+        df = pd.read_excel(EXCEL_FILE)
+        st.dataframe(df, use_container_width=True)
+    else:
+        st.info("Chưa có dữ liệu. Hãy xử lý hóa đơn đầu tiên!")
