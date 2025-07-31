@@ -17,6 +17,7 @@ import numpy as np
 from datetime import datetime
 from paddleocr import PaddleOCR
 from pdf2image import convert_from_bytes
+import ocr_module as OCR
 
 # Cấu hình trang
 st.set_page_config(
@@ -307,57 +308,10 @@ st.markdown("""
     <p>Hệ thống AI tự động xử lý hóa đơn và sinh báo cáo tài chính</p>
 </div>
 """, unsafe_allow_html=True)
-
-# Sidebar
-# with st.sidebar:
-#     st.markdown("### ⚙️ Cấu hình hệ thống")
-#
-#     # System Settings
-#     ocr_confidence = st.slider("OCR Confidence Threshold", 0.5, 1.0, 0.85, 0.05)
-#     classification_model = st.selectbox(
-#         "Classification Model",
-#         ["Naive Bayes", "SVM", "Random Forest", "Neural Network"]
-#     )
-#
-#     st.markdown("### 📊 Thống kê hệ thống")
-#
-#     # System metrics
-#     col1, col2 = st.columns(2)
-#     with col1:
-#         st.metric("Files đã xử lý", st.session_state.processed_files)
-#     with col2:
-#         st.metric("Độ chính xác", "95.2%")
-#
-#     st.metric("Thời gian xử lý TB", "2.3s/file")
-#     st.metric("Uptime", "99.8%")
-#
-#     st.markdown("### 🔧 Actions")
-#     if st.button("🔄 Reset System"):
-#         st.session_state.uploaded_files = []
-#         st.session_state.processed_files = 0
-#         st.session_state.extracted_data = []
-#         st.experimental_rerun()
-#
-#     if st.button("📥 Export Settings"):
-#         settings = {
-#             'ocr_confidence': ocr_confidence,
-#             'classification_model': classification_model,
-#             'timestamp': datetime.now().isoformat()
-#         }
-#         st.download_button(
-#             "Download Config",
-#             json.dumps(settings, indent=2),
-#             "config.json",
-#             "application/json"
-#         )
-# Khởi tạo PaddleOCR
+# Khởi tạo OCR
 @st.cache_resource
 def init_ocr():
-    return PaddleOCR(
-        use_textline_orientation=True,
-        text_detection_model_name='PP-OCRv5_server_det',
-        text_recognition_model_name='PP-OCRv5_server_rec',
-    )
+    return OCR()
 
 ocr = init_ocr()
 
@@ -393,7 +347,7 @@ def process_invoices():
 
                     for res in results:
                         # st.code(res.print())
-                        res.save_to_img(save_path="./output/")
+                        res.save_to_img(save_path="./output/processed_img/")
                         json_path = f"./output/raw_results/invoice_{index}_{today_str}.json"
                         res.save_to_json(save_path=json_path)
                         # st.success(f"✅ Lưu kết quả: {json_path}")
