@@ -7,7 +7,6 @@ class OCR_Module(object):
             use_textline_orientation=True,
             text_detection_model_name='PP-OCRv5_server_det',
             text_recognition_model_name='PP-OCRv5_server_rec',
-            lang='en'
         )
 
     def get_text(self, image_path, save_path=None):

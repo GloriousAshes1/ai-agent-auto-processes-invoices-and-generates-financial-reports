@@ -44,8 +44,8 @@ class InvoiceProcessorAgent:
         }
 
         # 5. Thực hiện hành động
-        print("STEP 5: Đang lưu kết quả...")
-        self.action_agent.save_to_excel(final_record)
+        # print("STEP 5: Đang lưu kết quả...")
+        # self.action_agent.save_to_excel(final_record)
         print("--- Xử lý hoàn tất! ---")
 
         return final_record

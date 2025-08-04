@@ -1,6 +1,7 @@
 import google.generativeai as genai
 import os
 from dotenv import load_dotenv
+import re
 
 def get_llm_model():
     """
@@ -19,6 +20,28 @@ def get_llm_model():
     
     return model
 
+def find_available_logs() -> dict:
+    """
+    Quét qua các thư mục con để tìm file log và trả về một dictionary
+    ánh xạ từ ngày (YYYY-MM-DD) đến đường dẫn file đầy đủ.
+    """
+    base_dir = "NhatKyKeToan"
+    pattern = r"NhatKyKeToan_(\d{4}-\d{2}-\d{2})\.xlsx"
+    log_files_map = {}  # Sử dụng dictionary thay vì list
+
+    if not os.path.exists(base_dir):
+        return log_files_map
+
+    for root, dirs, files in os.walk(base_dir):
+        for filename in files:
+            match = re.match(pattern, filename)
+            if match:
+                date_str = match.group(1)
+                # Lấy đường dẫn đầy đủ và thêm vào dictionary
+                full_path = os.path.join(root, filename)
+                log_files_map[date_str] = full_path
+
+    return log_files_map
 # This block allows the script to be run directly for testing purposes.
 if __name__ == "__main__":
     try:
