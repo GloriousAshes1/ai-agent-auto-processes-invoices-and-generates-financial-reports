@@ -15,7 +15,7 @@ class ActionAgent:
             return False
         return True
 
-    def save_all_to_excel(self, records: list, excel_path: str, sheet_name: str):
+    def save_to_excel(self, records: list, excel_path: str, sheet_name: str):
         """Hàm chung để ghi một danh sách các bản ghi vào file Excel."""
         if not records:
             return # Không làm gì nếu danh sách rỗng

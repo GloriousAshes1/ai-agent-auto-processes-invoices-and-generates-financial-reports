@@ -8,9 +8,7 @@ load_dotenv()
 model = get_llm_model()
 
 CATEGORIES = {
-    "client_entertainment": "Expenses related to client or partner entertainment, such as dining or recreational activities.",
-    "office_operations": "Office operation expenses, including electricity, water, internet, and office supplies.",
-    "business_travel": "Travel-related expenses, such as airfare, taxi fares, and fuel for business trips.",
+    "sales_invoices": "VAT Receipts",
     "uncategorized": "Unidentifiable or uncategorized expenses."
 }
 
@@ -36,7 +34,7 @@ class ClassificationAgent:
         ---
 
         Dựa vào nội dung hóa đơn, hãy cho biết nó thuộc về nghiệp vụ nào.
-        Chỉ trả về duy nhất **tên của nghiệp vụ** (ví dụ: office_operations), không thêm bất kỳ lời giải thích nào.
+        Chỉ trả về duy nhất **tên của nghiệp vụ** (ví dụ: uncategorized), không thêm bất kỳ lời giải thích nào.
         """
         return prompt
 
