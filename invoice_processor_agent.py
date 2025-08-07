@@ -2,15 +2,14 @@ from ocr_module import OCR_Module
 from nlp_module import process_invoice_text
 from classification_agent import ClassificationAgent, CATEGORIES
 from action_agent import ActionAgent
-from utils import get_llm_model
+from utils import get_local_llm_client
 
 class InvoiceProcessorAgent:
     def __init__(self):
         print("INFO: Đang khởi tạo các module...")
-        self.model = get_llm_model()
+        self.model = get_local_llm_client()
         self.ocr_agent = OCR_Module()
-        # Khởi tạo ClassificationAgent với model và các danh mục
-        self.classification_agent = ClassificationAgent(self.model, CATEGORIES)
+        self.classification_agent = ClassificationAgent()
         self.action_agent = ActionAgent()
         print("✅ Agent đã sẵn sàng!")
 
