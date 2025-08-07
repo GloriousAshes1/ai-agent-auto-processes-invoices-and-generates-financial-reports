@@ -5,7 +5,7 @@ from datetime import datetime
 
 class ActionAgent:
     def __init__(self):
-        self.review_file_path = "CanXuLyBangTay.xlsx"
+        self.review_file_path = "ManualReview.xlsx"
 
     def is_record_valid(self, record: dict) -> bool:
         """Kiểm tra xem bản ghi có hợp lệ để xử lý tự động không."""

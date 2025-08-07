@@ -6,12 +6,9 @@ từ các file hóa đơn có định dạng tương tự như các file đã cu
 """
 
 import re
-import os
 from typing import Dict, Any
 import json
-from utils import get_llm_model
-
-model = get_llm_model()
+from utils import get_local_llm_client
 
 def extract_invoice_info(text_content: str) -> Dict[str, Any]:
     """
@@ -55,19 +52,19 @@ def extract_invoice_info(text_content: str) -> Dict[str, Any]:
 
     return info
 
-def prompt_for_LLM(text):
+def prompt_for_llm(text):
     prompt = f"""
-      Bạn là một trợ lý kế toán AI chuyên nghiệp.
-      Nhiệm vụ của bạn là trích xuất chính xác các thông tin sau từ văn bản hóa đơn đã được OCR.
+      You are a professional AI accounting assistant.
+      Your task is to accurately extract the following information from the OCR text of an invoice.
 
-      Hãy trích xuất các trường thông tin sau và trả về kết quả dưới định dạng JSON:
-      - company: Tên của cửa hàng hoặc công ty phát hành hóa đơn.
-      - total_amount: Tổng số tiền cuối cùng khách hàng phải trả.
+      Extract the following fields and return the result in JSON format:
+      - company: The name of the store or company that issued the invoice.
+      - total_amount: The final total amount the customer has to pay.
 
-      Nếu không tìm thấy thông tin nào, hãy để giá trị là null.
-      Chỉ trả về duy nhất đối tượng JSON, không thêm bất kỳ lời giải thích nào.
+      If any information is not found, set the value to null.
+      Return only the JSON object, without any additional explanations.
 
-      Dưới đây là văn bản hóa đơn:
+      Below is the invoice text:
       ---
       {text}
       ---
@@ -76,21 +73,26 @@ def prompt_for_LLM(text):
 
 def extract_with_llm(ocr_text):
     try:
-        prompt = prompt_for_LLM(ocr_text)
+        client = get_local_llm_client()  # Khởi tạo client
+        prompt = prompt_for_llm(ocr_text)
 
-        # Gửi prompt đến API của Google
-        response = model.generate_content(prompt)
+        # Gửi yêu cầu đến server cục bộ
+        response = client.chat.completions.create(
+            model="llama3:8b",  # Tên model bạn đang chạy trên Ollama
+            messages=[
+                # Có thể thêm system prompt ở đây nếu muốn
+                {"role": "user", "content": prompt}
+            ],
+            response_format={"type": "json_object"}  # Yêu cầu LLM trả về đúng định dạng JSON
+        )
 
-        # Lấy phần text chứa JSON từ response
-        # Cần xử lý để loại bỏ các ký tự ```json và ``` ở đầu và cuối nếu có
-        json_text = response.text.strip().replace('```json', '').replace('```', '')
-
-        # Chuyển chuỗi JSON thành dictionary
+        # Lấy nội dung JSON từ phản hồi
+        json_text = response.choices[0].message.content
         extracted_data = json.loads(json_text)
-
         return extracted_data
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"❌ Error during LLM extraction: {e}")
+        return None  # Trả về None nếu có lỗi
 
 def process_invoice_text(text_content: str) -> Dict[str, Any]:
     """Thử trích xuất bằng regex trước, nếu thất bại thì dùng LLM."""

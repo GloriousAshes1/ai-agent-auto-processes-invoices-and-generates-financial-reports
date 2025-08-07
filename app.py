@@ -1,11 +1,24 @@
 import streamlit as st
 from invoice_processor_agent import InvoiceProcessorAgent
+from data_aggregation_module import aggregate_logs
+from report_generation_agent import generate_financial_report, create_spending_chart
+from config import BASE_LOG_DIR, LOG_SHEET_NAME
 import os
 import pandas as pd
 from PIL import Image
 from datetime import datetime
 from utils import find_available_logs
 import shutil
+
+# Global variable
+temp_dir = "temp_uploads"
+#Uploaded Invoices Directory
+save_invoice_dir = os.path.join("uploaded_invoices", f"invoices_{datetime.now().strftime("%d-%m-%Y")}")
+os.makedirs(save_invoice_dir, exist_ok=True)
+#Acccounting Logs Directory
+today_str = datetime.now().strftime("%d-%m-%Y")
+accounting_log_dir = os.path.join(BASE_LOG_DIR, datetime.now().strftime("%Y"), f"Month_{datetime.now().strftime("%m")}")
+os.makedirs(accounting_log_dir, exist_ok=True)
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -23,7 +36,6 @@ def load_agent():
 
 
 agent = load_agent()
-today_str = datetime.now().strftime("%Y-%m-%d")
 
 # --- Modern CSS Styling ---
 st.markdown(
@@ -362,7 +374,6 @@ st.markdown(
     """
     <div class="hero-section">
         <div class="hero-title">🤖 AI Accounting Assistant</div>
-        <div class="hero-subtitle">Xử lý hóa đơn tự động với AI thông minh • Tiết kiệm thời gian • Chính xác cao ✨</div>
     </div>
     """,
     unsafe_allow_html=True
@@ -378,7 +389,7 @@ with col1:
         <div class="card">
             <div class="card-header">
                 <div class="card-icon">📤</div>
-                <h2 class="card-title">Tải lên hóa đơn</h2>
+                <h2 class="card-title">Uploaded Invoice</h2>
             </div>
         </div>
         """,
@@ -388,10 +399,10 @@ with col1:
     # Custom file uploader with icon
     st.markdown('<div class="upload-icon">📁</div>', unsafe_allow_html=True)
     uploaded_files = st.file_uploader(
-        "Kéo thả hình ảnh hóa đơn vào đây hoặc nhấn để chọn file",
+        "Drag and drop invoice images here",
         type=["png", "jpg", "jpeg"],
         accept_multiple_files=True,
-        help="Định dạng hỗ trợ: PNG, JPG, JPEG • Tối đa 200MB mỗi file"
+        help="Format: PNG, JPG, JPEG • Max 200MB/file"
     )
 
     if uploaded_files:
@@ -401,11 +412,11 @@ with col1:
             <div class="stats-container">
                 <div class="stat-card">
                     <div class="stat-number">{len(uploaded_files)}</div>
-                    <div class="stat-label">Files đã chọn</div>
+                    <div class="stat-label">Selected Files</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-number">{sum(f.size for f in uploaded_files) / 1024 / 1024:.1f}</div>
-                    <div class="stat-label">MB tổng cộng</div>
+                    <div class="stat-label">Total MB</div>
                 </div>
             </div>
             """,
@@ -415,31 +426,26 @@ with col1:
         valid_results = []
         review_results = []
 
-        if st.button(f"🚀 Xử lý {len(uploaded_files)} hóa đơn", type="primary"):
+        if st.button(f"🚀 Process {len(uploaded_files)} invoices", type="primary"):
             # Processing section with modern design
             st.markdown('<div class="progress-container">', unsafe_allow_html=True)
-            st.markdown("### 🔄 Đang xử lý hóa đơn...")
+            st.markdown("### 🔄 Processing Invoices...")
             st.markdown('<hr class="divider">', unsafe_allow_html=True)
 
-            progress_bar = st.progress(0, text="Bắt đầu xử lý...")
-
-            today_str_folder = datetime.now().strftime("%d-%m-%Y")
-            save_dir = os.path.join("uploaded_invoices", f"invoices_{today_str_folder}")
-            os.makedirs(save_dir, exist_ok=True)
+            progress_bar = st.progress(0, text="Processing...")
 
             for i, uploaded_file in enumerate(uploaded_files):
-                progress_text = f"Đang xử lý: **{uploaded_file.name}** ({i + 1}/{len(uploaded_files)})"
+                progress_text = f"Processing: **{uploaded_file.name}** ({i + 1}/{len(uploaded_files)})"
                 progress_bar.progress((i + 1) / len(uploaded_files), text=progress_text)
 
-                with st.expander(f"📋 Kết quả: **{uploaded_file.name}**", expanded=False):
+                with st.expander(f"📋 Result: **{uploaded_file.name}**", expanded=False):
                     # Create two columns for image and results
                     img_col, result_col = st.columns([1, 2])
 
                     with img_col:
-                        st.image(Image.open(uploaded_file), caption="Hóa đơn đã tải lên", use_column_width=True)
+                        st.image(Image.open(uploaded_file), caption="Uploaded Invoices", use_container_width=True)
 
                     with result_col:
-                        temp_dir = "temp_uploads"
                         if not os.path.exists(temp_dir):
                             os.makedirs(temp_dir)
                         temp_file_path = os.path.join(temp_dir, uploaded_file.name)
@@ -450,31 +456,31 @@ with col1:
                         result = agent.run(temp_file_path)
 
                         if result:
-                            final_image_path = os.path.join(save_dir, uploaded_file.name)
+                            final_image_path = os.path.join(save_invoice_dir, uploaded_file.name)
                             try:
                                 shutil.copy(temp_file_path, final_image_path)
-                                st.caption(f"💾 Đã lưu tại: `{final_image_path}`")
+                                st.caption(f"💾 Saved at: `{final_image_path}`")
                             except Exception as e:
-                                st.markdown(f'<div class="status-warning">⚠️ Lỗi khi lưu file: {e}</div>',
+                                st.markdown(f'<div class="status-warning">⚠️ Error: {e}</div>',
                                             unsafe_allow_html=True)
 
                             result['invoice_path'] = final_image_path
 
                             if agent.action_agent.is_record_valid(result):
                                 st.markdown(
-                                    '<div class="status-success">✅ Hợp lệ! Sẽ được lưu vào Nhật ký kế toán</div>',
+                                    '<div class="status-success">✅ Valid Invoice!</div>',
                                     unsafe_allow_html=True)
                                 valid_results.append(result)
                             else:
                                 st.markdown(
-                                    '<div class="status-warning">⚠️ Phát hiện vấn đề! Hóa đơn sẽ được chuyển để xử lý thủ công</div>',
+                                    '<div class="status-warning">⚠️ Requires Review!</div>',
                                     unsafe_allow_html=True)
                                 review_results.append(result)
 
                             # Display results in a more readable format
                             st.json(result)
                         else:
-                            st.markdown('<div class="status-error">❌ Xử lý thất bại cho hóa đơn này</div>',
+                            st.markdown('<div class="status-error">❌ Error during processing!</div>',
                                         unsafe_allow_html=True)
 
                         os.remove(temp_file_path)
@@ -483,15 +489,7 @@ with col1:
 
             # Summary section with modern cards
             st.markdown('<hr class="divider">', unsafe_allow_html=True)
-            st.markdown("### 📊 Tổng kết xử lý")
-
-            now = datetime.now()
-            year_str = now.strftime("%Y")
-            month_str = now.strftime("%m")
-            today_str = now.strftime("%Y-%m-%d")
-
-            year_month_dir = os.path.join("NhatKyKeToan", year_str, f"Thang_{month_str}")
-            os.makedirs(year_month_dir, exist_ok=True)
+            st.markdown("### 📊 Summary")
 
             # Results statistics
             st.markdown(
@@ -499,15 +497,15 @@ with col1:
                 <div class="stats-container">
                     <div class="stat-card">
                         <div class="stat-number">{len(valid_results)}</div>
-                        <div class="stat-label">Hóa đơn hợp lệ</div>
+                        <div class="stat-label">Valid Invoices</div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-number">{len(review_results)}</div>
-                        <div class="stat-label">Cần xem xét</div>
+                        <div class="stat-label">Require Review</div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-number">{len(uploaded_files)}</div>
-                        <div class="stat-label">Tổng số xử lý</div>
+                        <div class="stat-label">Total Processed</div>
                     </div>
                 </div>
                 """,
@@ -515,23 +513,22 @@ with col1:
             )
 
             if valid_results:
-                excel_path_today = os.path.join(year_month_dir, f"NhatKyKeToan_{today_str}.xlsx")
-                agent.action_agent.save_to_excel(valid_results, excel_path_today, 'NhatKyKeToan')
+                excel_path_today = os.path.join(accounting_log_dir, f"AccountingLog_{today_str}.xlsx")
+                agent.action_agent.save_to_excel(valid_results, excel_path_today, LOG_SHEET_NAME)
                 st.markdown(
-                    f'<div class="status-success">🎉 Đã lưu thành công {len(valid_results)} hóa đơn hợp lệ vào: **{excel_path_today}**</div>',
+                    f'<div class="status-success">🎉 Successfully saved {len(valid_results)} valid invoices to: **{excel_path_today}**</div>',
                     unsafe_allow_html=True)
             else:
-                st.markdown('<div class="status-info">ℹ️ Không có hóa đơn hợp lệ để lưu</div>', unsafe_allow_html=True)
+                st.markdown('<div class="status-info">ℹ️ No valid invoices to save</div>', unsafe_allow_html=True)
 
             if review_results:
-                review_file = "CanXuLyBangTay.xlsx"
-                agent.action_agent.save_to_excel(review_results, review_file, 'CanXuLy')
+                agent.action_agent.save_to_excel(review_results, agent.action_agent.review_file_path, 'CanXuLy')
                 st.markdown(
-                    f'<div class="status-warning">⚠️ {len(review_results)} hóa đơn có vấn đề đã được chuyển vào **{review_file}** để xử lý thủ công</div>',
+                    f'<div class="status-warning">⚠️ {len(review_results)} invoices with issues have been moved to **{agent.action_agent.review_file_path}** for manual processing.</div>',
                     unsafe_allow_html=True
                 )
             else:
-                st.markdown('<div class="status-success">🎉 Không có hóa đơn nào cần xử lý thủ công</div>',
+                st.markdown('<div class="status-success">🎉  No invoices need manual review<</div>',
                             unsafe_allow_html=True)
 
             st.balloons()
@@ -543,7 +540,7 @@ with col2:
         <div class="card">
             <div class="card-header">
                 <div class="card-icon">📊</div>
-                <h2 class="card-title">Tra cứu nhật ký</h2>
+                <h2 class="card-title">Lookup Logs</h2>
             </div>
         </div>
         """,
@@ -553,20 +550,19 @@ with col2:
     available_logs = find_available_logs()
 
     if not available_logs:
-        st.markdown('<div class="status-info">🤷 Chưa có file nhật ký kế toán nào</div>', unsafe_allow_html=True)
+        st.markdown('<div class="status-info">🤷 No accounting logs available</div>', unsafe_allow_html=True)
     else:
         sorted_dates = sorted(available_logs.keys(), reverse=True)
 
         selected_date = st.selectbox(
-            "📅 Chọn ngày để xem dữ liệu:",
+            "📅 Select a date to view previously processed invoices:",
             options=sorted_dates,
-            help="Chọn ngày để xem lại các hóa đơn đã xử lý"
+            help="Choose a date to view the corresponding accounting log"
         )
 
         if selected_date:
             selected_excel_file_path = available_logs[selected_date]
-
-            st.markdown(f"**📄 Hiển thị dữ liệu từ:** `{selected_excel_file_path}`")
+            st.markdown(f"**📄 Showing data from:** `{selected_excel_file_path}`")
 
             if os.path.exists(selected_excel_file_path):
                 df_main = pd.read_excel(selected_excel_file_path)
@@ -576,14 +572,14 @@ with col2:
 
                 with open(selected_excel_file_path, "rb") as file:
                     st.download_button(
-                        label=f"📥 Tải xuống nhật ký {selected_date}",
+                        label=f"📥 Download log for {selected_date}",
                         data=file,
                         file_name=os.path.basename(selected_excel_file_path),
                         mime="application/vnd.ms-excel"
                     )
             else:
                 st.markdown(
-                    f'<div class="status-error">❌ Lỗi: Không tìm thấy file tại \'{selected_excel_file_path}\'</div>',
+                    f'<div class="status-error">❌ Error: File not found at \'{selected_excel_file_path}\'</div>',
                     unsafe_allow_html=True)
 
 # Manual Review Section
@@ -593,25 +589,71 @@ st.markdown(
     <div class="card">
         <div class="card-header">
             <div class="card-icon">⚠️</div>
-            <h2 class="card-title">Hóa đơn cần xử lý thủ công</h2>
+            <h2 class="card-title">Invoices Requiring Manual Review</h2>
         </div>
     </div>
     """,
     unsafe_allow_html=True
 )
 
-review_file = "CanXuLyBangTay.xlsx"
-if os.path.exists(review_file):
-    df_review = pd.read_excel(review_file)
+
+if os.path.exists(agent.action_agent.review_file_path):
+    df_review = pd.read_excel(agent.action_agent.review_file_path)
     st.markdown('<div class="dataframe-container">', unsafe_allow_html=True)
     st.dataframe(df_review, use_container_width=True, height=300)
     st.markdown('</div>', unsafe_allow_html=True)
 
     col1, col2, col3 = st.columns([1, 1, 1])
     with col1:
-        if st.button("🔄 Xóa danh sách xử lý thủ công", help="Thao tác này sẽ xóa file 'CanXuLyBangTay.xlsx'"):
-            os.remove(review_file)
+        if st.button("🔄 Delete manual review list", help="Remove 'ManualReview.xlsx'"):
+            os.remove(agent.action_agent.review_file_path)
             st.rerun()
 else:
-    st.markdown('<div class="status-success">🎉 Hiện tại không có hóa đơn nào cần xử lý thủ công</div>',
+    st.markdown('<div class="status-success">🎉 Currently no invoices require manual review</div>',
                 unsafe_allow_html=True)
+
+# --- PHẦN SINH BÁO CÁO TÀI CHÍNH ---
+st.markdown('<hr class="divider">', unsafe_allow_html=True)
+st.markdown(
+    """
+    <div class="card">
+        <div class="card-header">
+            <div class="card-icon">📈</div>
+            <h2 class="card-title">Financial Report Generation</h2>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+report_col1, report_col2 = st.columns(2)
+
+with report_col1:
+    # Lấy danh sách các năm và tháng có dữ liệu
+    available_years = sorted(os.listdir(BASE_LOG_DIR), reverse=True) if os.path.exists(BASE_LOG_DIR) else []
+    selected_year = st.selectbox("Select Year:", options=available_years)
+
+if selected_year:
+    months_in_year_dir = os.path.join(BASE_LOG_DIR, selected_year)
+    available_months = sorted([d.split('_')[1] for d in os.listdir(months_in_year_dir) if "Month_" in d], reverse=True)
+
+    with report_col2:
+        selected_month = st.selectbox("Select Month:", options=available_months)
+
+    if st.button("📊 Generate Monthly Report", type="primary"):
+        with st.spinner(f"Generating report for {selected_month}/{selected_year}..."):
+            aggregated_data = aggregate_logs(selected_year, selected_month)
+
+            if not aggregated_data.empty:
+                # Nhận về cả text và chart
+                report_content = generate_financial_report(aggregated_data)
+                report_chart = create_spending_chart(aggregated_data)
+
+                st.subheader(f"Financial Summary for {selected_month}/{selected_year}")
+                st.markdown(report_content)
+
+                if report_chart:
+                    st.subheader("Spending Distribution Chart")
+                    st.pyplot(report_chart)  # Dùng st.pyplot để hiển thị biểu đồ
+            else:
+                st.warning(f"No data found for {selected_month}/{selected_year} to generate a report.")
