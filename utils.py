@@ -1,6 +1,4 @@
-import google.generativeai as genai
 import os
-from dotenv import load_dotenv
 import re
 from config import OLLAMA_PORT, BASE_LOG_DIR, LOG_FILE_PATTERN
 from openai import OpenAI

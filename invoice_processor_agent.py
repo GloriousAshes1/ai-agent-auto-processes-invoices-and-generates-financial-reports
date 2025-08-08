@@ -1,6 +1,6 @@
 from ocr_module import OCR_Module
 from nlp_module import process_invoice_text
-from classification_agent import ClassificationAgent, CATEGORIES
+from classification_agent import ClassificationAgent
 from action_agent import ActionAgent
 from utils import get_local_llm_client
 
