@@ -13,8 +13,14 @@ from io import BytesIO
 
 # Global variables
 temp_dir = "temp_uploads"
+save_text_dir = "ocr_result/ocr_txt"
+save_image_dir = "ocr_result/ocr_img"  # Add OCR image directory
 save_invoice_dir = os.path.join("uploaded_invoices", f"invoices_{datetime.now().strftime('%d-%m-%Y')}")
 os.makedirs(save_invoice_dir, exist_ok=True)
+
+# Ensure OCR directories exist
+os.makedirs(save_text_dir, exist_ok=True)
+os.makedirs(save_image_dir, exist_ok=True)
 
 # Accounting Logs Directory
 today_str = datetime.now().strftime("%d-%m-%Y")
@@ -35,9 +41,38 @@ st.set_page_config(
 def load_agent():
     return InvoiceProcessorAgent()
 
+
 @st.cache_data
 def get_available_logs_map():
     return find_available_logs()
+
+
+@st.cache_data
+def get_ocr_files():
+    """Get list of OCR image and text files"""
+    ocr_files = {}
+
+    # Get image files
+    if os.path.exists(save_image_dir):
+        image_files = [f for f in os.listdir(save_image_dir)
+                       if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+        for img_file in image_files:
+            base_name = os.path.splitext(img_file)[0]
+            ocr_files[base_name] = {'image': img_file, 'text': None}
+
+    # Get text files
+    if os.path.exists(save_text_dir):
+        text_files = [f for f in os.listdir(save_text_dir)
+                      if f.lower().endswith('.txt')]
+        for txt_file in text_files:
+            base_name = os.path.splitext(txt_file)[0]
+            if base_name in ocr_files:
+                ocr_files[base_name]['text'] = txt_file
+            else:
+                ocr_files[base_name] = {'image': None, 'text': txt_file}
+
+    return ocr_files
+
 
 agent = load_agent()
 
@@ -281,6 +316,30 @@ st.markdown(
         color: white;
         box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
     }
+
+    .ocr-text-container {
+        background: linear-gradient(135deg, rgba(248, 249, 250, 0.95) 0%, rgba(241, 243, 244, 0.95) 100%);
+        border: 1px solid rgba(102, 126, 234, 0.2);
+        border-radius: 12px;
+        padding: 20px;
+        font-family: 'Courier New', monospace;
+        font-size: 0.9em;
+        line-height: 1.6;
+        max-height: 400px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        backdrop-filter: blur(10px);
+    }
+
+    .file-info {
+        background: linear-gradient(135deg, rgba(240, 248, 255, 0.9) 0%, rgba(230, 243, 255, 0.9) 100%);
+        border: 1px solid rgba(102, 126, 234, 0.2);
+        border-radius: 12px;
+        padding: 15px;
+        margin: 10px 0;
+        backdrop-filter: blur(10px);
+    }
     </style>
     """,
     unsafe_allow_html=True
@@ -316,9 +375,14 @@ with st.sidebar:
         [f for f in os.listdir(save_invoice_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]) if os.path.exists(
         save_invoice_dir) else 0
 
+    # Count OCR files
+    ocr_files = get_ocr_files()
+    ocr_count = len(ocr_files)
+
     st.metric("📄 Available Logs", total_logs)
     st.metric("⚠️ Review Required", review_count)
     st.metric("📸 Today's Invoices", today_invoices)
+    st.metric("🔍 OCR Files", ocr_count)
     st.markdown('</div>', unsafe_allow_html=True)
 
     # Quick Actions
@@ -327,6 +391,7 @@ with st.sidebar:
 
     if st.button("🔄 Refresh Data", help="Refresh all cached data"):
         st.cache_resource.clear()
+        st.cache_data.clear()
         st.rerun()
 
     if st.button("📂 Open Invoice Folder", help="View today's invoice folder"):
@@ -347,6 +412,8 @@ with st.sidebar:
     st.caption(f"**Date:** {datetime.now().strftime('%d/%m/%Y')}")
     st.caption(f"**Log Dir:** `{accounting_log_dir}`")
     st.caption(f"**Agent Status:** {'✅ Ready' if agent else '❌ Error'}")
+    st.caption(f"**OCR Text Dir:** `{save_text_dir}`")
+    st.caption(f"**OCR Image Dir:** `{save_image_dir}`")
     st.markdown('</div>', unsafe_allow_html=True)
 
 # --- Main Content ---
@@ -360,7 +427,8 @@ st.markdown(
 )
 
 # --- Tab Navigation ---
-tab1, tab2, tab3, tab4 = st.tabs(["📤 Upload & Process", "📋 View Logs", "📊 Financial Reports", "⚠️ Manual Review"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(
+    ["📤 Upload & Process", "📋 View Logs", "📊 Financial Reports", "⚠️ Manual Review", "🔍 OCR Raw Data"])
 
 # --- TAB 1: Upload & Process ---
 with tab1:
@@ -426,11 +494,23 @@ with tab1:
                                 os.makedirs(temp_dir)
 
                             temp_file_path = os.path.join(temp_dir, uploaded_file.name)
+                            file_name_no_ext = os.path.splitext(uploaded_file.name)[0]
+                            save_txt = os.path.join(save_text_dir, f"{file_name_no_ext}_ocr_res_img.txt")
+                            save_img_path = os.path.join(save_image_dir, uploaded_file.name)
+
                             with open(temp_file_path, "wb") as f:
                                 f.write(uploaded_file.getbuffer())
 
+                            # Copy image to OCR image directory
+                            try:
+                                shutil.copy(temp_file_path, save_img_path)
+                                st.caption(f"🖼️ Saved OCR image: `{save_img_path}`")
+                            except Exception as e:
+                                st.markdown(f'<div class="status-warning">⚠️ OCR image save error: {e}</div>',
+                                            unsafe_allow_html=True)
+
                             # Run agent processing
-                            result = agent.run(temp_file_path)
+                            result = agent.run(temp_file_path, save_txt)
 
                             if result:
                                 # Save processed invoice
@@ -504,6 +584,8 @@ with tab1:
 
                 if valid_results or review_results:
                     st.balloons()
+                    # Clear cache to refresh OCR files count
+                    st.cache_data.clear()
 
     with col2:
         st.markdown(
@@ -529,6 +611,7 @@ with tab1:
         - Valid invoices are automatically saved
         - Problematic invoices go to review queue
         - All originals are preserved
+        - OCR images and text are stored separately
         - Processing is done in parallel
         """)
 
@@ -909,13 +992,253 @@ with tab4:
     4. **Contact Admin** for persistent extraction issues
     """)
 
+# --- TAB 5: OCR Raw Data ---
+# --- TAB 5: OCR Raw Data ---
+with tab5:
+    st.markdown(
+        """
+        <div class="card">
+            <div class="card-header">
+                <div class="card-icon">🔍</div>
+                <h2 class="card-title">OCR Raw Data Viewer</h2>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # Get OCR files
+    ocr_files = get_ocr_files()
+
+    if not ocr_files:
+        st.markdown('<div class="status-info">📄 No OCR files found</div>', unsafe_allow_html=True)
+        st.markdown(
+            f"""
+            <div class="file-info">
+                <strong>📁 Expected Directories:</strong><br>
+                • Images: <code>{save_image_dir}</code><br>
+                • Text files: <code>{save_text_dir}</code><br><br>
+                <em>💡 Process some invoices first to generate OCR data</em>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+    else:
+        # OCR Statistics
+        total_files = len(ocr_files)
+        files_with_images = sum(1 for f in ocr_files.values() if f['image'])
+        files_with_text = sum(1 for f in ocr_files.values() if f['text'])
+        complete_pairs = sum(1 for f in ocr_files.values() if f['image'] and f['text'])
+
+        # Filter for complete pairs only
+        complete_pair_files = {k: v for k, v in ocr_files.items() if v['image'] and v['text']}
+
+        # Check if there are any complete pairs
+        if not complete_pair_files:
+            st.markdown('<div class="status-warning">⚠️ No complete pairs (image + text) found</div>', unsafe_allow_html=True)
+            st.markdown(
+                """
+                <div class="file-info">
+                    <strong>📋 Available Files:</strong><br>
+                    • Files with only images: {}<br>
+                    • Files with only text: {}<br><br>
+                    <em>💡 Complete pairs are required for viewing. Process invoices to generate both image and text files.</em>
+                </div>
+                """.format(
+                    sum(1 for f in ocr_files.values() if f['image'] and not f['text']),
+                    sum(1 for f in ocr_files.values() if f['text'] and not f['image'])
+                ),
+                unsafe_allow_html=True
+            )
+        else:
+            # File selection - only show complete pairs
+            col1, col2 = st.columns([2, 1])
+
+            with col1:
+                # Sort complete pair files by name (most recent first based on typical naming)
+                sorted_complete_files = sorted(complete_pair_files.keys(), reverse=True)
+                selected_file = st.selectbox(
+                    "🗂️ Select complete pair to view:",
+                    options=sorted_complete_files,
+                    help=f"Choose from {len(sorted_complete_files)} files that have both image and text data"
+                )
+
+            with col2:
+                if selected_file:
+                    file_data = complete_pair_files[selected_file]
+                    st.markdown(
+                        f"""
+                        <div class="file-info">
+                            <strong>📄 File: {selected_file}</strong><br>
+                            🖼️ Image: ✅ {file_data['image']}<br>
+                            📄 Text: ✅ {file_data['text']}
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+
+            if selected_file:
+                file_data = complete_pair_files[selected_file]
+
+                # Create two columns for image and text
+                col1, col2 = st.columns([1, 1])
+
+                with col1:
+                    st.markdown("### 🖼️ OCR Image")
+                    image_path = os.path.join(save_image_dir, file_data['image'])
+                    if os.path.exists(image_path):
+                        try:
+                            image = Image.open(image_path)
+                            st.image(image, caption=f"OCR Image: {file_data['image']}", use_container_width=True)
+
+                            # Image info
+                            file_size = os.path.getsize(image_path) / 1024  # KB
+                            st.caption(f"📊 Size: {file_size:.1f} KB | 📏 Dimensions: {image.size[0]}x{image.size[1]}")
+                        except Exception as e:
+                            st.error(f"❌ Error loading image: {e}")
+                    else:
+                        st.warning(f"⚠️ Image file not found: {image_path}")
+
+                with col2:
+                    st.markdown("### 📄 Raw OCR Text")
+                    text_path = os.path.join(save_text_dir, file_data['text'])
+                    if os.path.exists(text_path):
+                        try:
+                            with open(text_path, 'r', encoding='utf-8') as f:
+                                text_content = f.read()
+
+                            if text_content.strip():
+                                # Text statistics
+                                word_count = len(text_content.split())
+                                char_count = len(text_content)
+                                line_count = len(text_content.splitlines())
+
+                                st.caption(f"📊 {word_count} words | {char_count} characters | {line_count} lines")
+
+                                # Display text in styled container
+                                st.markdown(
+                                    f'<div class="ocr-text-container">{text_content}</div>',
+                                    unsafe_allow_html=True
+                                )
+                            else:
+                                st.info("📄 Text file is empty")
+
+                        except Exception as e:
+                            st.error(f"❌ Error reading text file: {e}")
+                    else:
+                        st.warning(f"⚠️ Text file not found: {text_path}")
+
+                # Download options
+                st.markdown('<hr class="divider">', unsafe_allow_html=True)
+                st.markdown("### 📥 Download Options")
+
+                col1, col2, col3 = st.columns(3)
+
+                with col1:
+                    image_path = os.path.join(save_image_dir, file_data['image'])
+                    if os.path.exists(image_path):
+                        with open(image_path, "rb") as f:
+                            image_data = f.read()
+                        st.download_button(
+                            label="🖼️ Download Image",
+                            data=image_data,
+                            file_name=file_data['image'],
+                            mime="image/jpeg",
+                            key=f"download_image_{selected_file}"
+                        )
+
+                with col2:
+                    text_path = os.path.join(save_text_dir, file_data['text'])
+                    if os.path.exists(text_path):
+                        with open(text_path, "r", encoding='utf-8') as f:
+                            text_data = f.read()
+                        st.download_button(
+                            label="📄 Download Text",
+                            data=text_data.encode('utf-8'),
+                            file_name=file_data['text'],
+                            mime="text/plain",
+                            key=f"download_text_{selected_file}"
+                        )
+
+                with col3:
+                    if st.button("🗑️ Delete Pair", help="Delete both image and text files",
+                                 key=f"delete_{selected_file}"):
+                        deleted_files = []
+                        try:
+                            # Delete image
+                            image_path = os.path.join(save_image_dir, file_data['image'])
+                            if os.path.exists(image_path):
+                                os.remove(image_path)
+                                deleted_files.append("image")
+
+                            # Delete text
+                            text_path = os.path.join(save_text_dir, file_data['text'])
+                            if os.path.exists(text_path):
+                                os.remove(text_path)
+                                deleted_files.append("text")
+
+                            if deleted_files:
+                                st.success(f"🗑️ Deleted: {', '.join(deleted_files)} files")
+                                st.cache_data.clear()  # Refresh cache
+                                st.rerun()
+                            else:
+                                st.warning("⚠️ No files found to delete")
+                        except Exception as e:
+                            st.error(f"❌ Error deleting files: {e}")
+
+        # Bulk operations
+        if ocr_files:
+            st.markdown('<hr class="divider">', unsafe_allow_html=True)
+            st.markdown("### 🔧 Bulk Operations")
+
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                if st.button("📦 Download All Text Files", help="Download all OCR text files as ZIP"):
+                    st.info("💡 ZIP download functionality would be implemented here")
+
+            with col2:
+                if st.button("🖼️ Download All Images", help="Download all OCR images as ZIP"):
+                    st.info("💡 ZIP download functionality would be implemented here")
+
+            with col3:
+                if st.button("⚠️ Clear All OCR Data", help="Delete all OCR images and text files"):
+                    if st.session_state.get('confirm_clear_ocr'):
+                        try:
+                            deleted_count = 0
+                            # Delete all images
+                            if os.path.exists(save_image_dir):
+                                for file in os.listdir(save_image_dir):
+                                    file_path = os.path.join(save_image_dir, file)
+                                    if os.path.isfile(file_path):
+                                        os.remove(file_path)
+                                        deleted_count += 1
+
+                            # Delete all text files
+                            if os.path.exists(save_text_dir):
+                                for file in os.listdir(save_text_dir):
+                                    file_path = os.path.join(save_text_dir, file)
+                                    if os.path.isfile(file_path):
+                                        os.remove(file_path)
+                                        deleted_count += 1
+
+                            st.success(f"🗑️ Cleared {deleted_count} OCR files")
+                            st.session_state['confirm_clear_ocr'] = False
+                            st.cache_data.clear()
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Error clearing OCR data: {e}")
+                    else:
+                        st.session_state['confirm_clear_ocr'] = True
+                        st.warning("⚠️ Click again to confirm deletion of ALL OCR data")
+
 # --- Footer ---
 st.markdown('<hr class="divider">', unsafe_allow_html=True)
 st.markdown(
     """
     <div style="text-align: center; padding: 20px; color: #6c757d;">
         <p>🤖 AI Accounting Assistant | Built with Streamlit | 
-        <span style="color: #667eea;">Enhanced with Sidebar & Tabs</span></p>
+        <span style="color: #667eea;">Enhanced with OCR Raw Data Viewer</span></p>
     </div>
     """,
     unsafe_allow_html=True
