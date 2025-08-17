@@ -13,14 +13,14 @@ class InvoiceProcessorAgent:
         self.action_agent = ActionAgent()
         print("✅ Agent đã sẵn sàng!")
 
-    def run(self, image_path: str):
+    def run(self, image_path: str, text_path=None):
         """
         Thực thi toàn bộ chu trình xử lý một hóa đơn.
         """
         # 1. OCR: Chuyển ảnh thành văn bản
         print(f"\n--- Bắt đầu xử lý hóa đơn: {image_path} ---")
         print("STEP 1: Đang thực hiện OCR...")
-        ocr_text = self.ocr_agent.get_text(image_path)
+        ocr_text = self.ocr_agent.get_text(image_path, text_path)
         if not ocr_text:
             print("❌ ERROR: OCR thất bại, không thể đọc văn bản từ ảnh.")
             return

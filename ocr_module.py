@@ -9,7 +9,8 @@ class OCR_Module(object):
             text_recognition_model_name='PP-OCRv5_server_rec',
         )
 
-    def get_text(self, image_path, save_path=None):
+    def get_text(self, image_path, save_path_txt=None):
+        save_path_img = "./ocr_result/ocr_img"
         result = self.ocr_engine.ocr(image_path)
 
         # Kiểm tra xem có kết quả không
@@ -22,10 +23,18 @@ class OCR_Module(object):
         # Gộp các dòng lại thành 1 chuỗi plain text
         plain_text = "\n".join(rec_texts)
 
-        # Nếu có yêu cầu lưu file
-        if save_path:
-            with open(save_path, 'w', encoding='utf-8') as f:
-                f.write(plain_text)
+        if save_path_img:
+            result[0].save_to_img(save_path_img)
 
+        # Nếu có yêu cầu lưu file
+        if save_path_txt:
+            with open(save_path_txt, 'w', encoding='utf-8') as f:
+                texts = result[0]["rec_texts"]
+                scores = result[0]["rec_scores"]
+                boxes = result[0]["rec_boxes"]
+
+                for i, (text, score, box) in enumerate(zip(texts, scores, boxes)):
+                    line = f"{i + 1:02}. Text: {text} | Score: {score:.2f} | Box: {box.tolist()}\n"
+                    f.write(line)
         # Trả về plain_text để NLP_Module xử lý tiếp
         return plain_text
