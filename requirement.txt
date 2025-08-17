@@ -1,9 +1,0 @@
-paddlepaddle==3.0.0
-paddleocr
-streamlit
-opencv-python
-scikit-learn
-pandas
-openpyxl
-joblib
-numpy
